@@ -6,7 +6,7 @@ A powerful wiki written in Run BASIC
 Prerequisites
 =============
 
-Run BASIC version 1.01 or later
+Run BASIC version 1.0.1 or later
 ImageMagik convert command line tool (required for image re-sizing)
 
 How To Install
