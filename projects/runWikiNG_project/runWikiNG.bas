@@ -1433,10 +1433,11 @@ sub adminHeading heading$
   cls
 
   titlebar siteName$; " - "; heading$
-  cssclass "body", "{padding-top: 60px}"
-  cssclass "label.required:after", "{content:"" *""; color:red;}"
 
   head "<link href=""/"; AppName$; "/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
+  head "<style type=""text/css"">body {padding-top: 60px}</style>"
+  head "<style type=""text/css"">label.required:after {content:"" *""; color:red;}</style>"
+
   html "</div>"
   html "<div class=""navbar navbar-fixed-top navbar-inverse"">"
   html "<div class=""navbar-inner"">"
@@ -1576,6 +1577,7 @@ sub displayBreadcrumb
       else
         html "<li>"
         link #link, breadcrumbs$(i), loadPage
+        #link setid("breadcrumb";i)
         #link setkey(breadcrumbs$(i))
         html " <span class=""divider"">/</span></li>"
       end if
@@ -1600,8 +1602,8 @@ end sub
 sub displayCurrentPage
   cls
   titlebar siteName$; " - "; currentName$
-  cssclass "body", "{padding-top: 60px}"
   head "<link href="""; cssFile$; """ rel=""stylesheet""/>"
+  head "<style type=""text/css"">body {padding-top: 60px}</style>"
   html "</div>"
   html "<div class=""navbar navbar-fixed-top navbar-inverse"">"
   html "<div class=""navbar-inner"">"
@@ -1647,7 +1649,7 @@ sub displayCurrentPage
           link #editPage, "Edit page", [editPage]
           html "</li>"
           html "<li>"
-          link #editPage, "Rename page", [renamePage]
+          link #renamePage, "Rename page", [renamePage]
           html "</li>"
           html "<li>"
           link #deletePage, "Delete page", [deletePage]
@@ -1748,7 +1750,7 @@ sub displayCurrentPage
   html "</div></div>"
   html "<hr/>"
   call attribution
-  html "<p><a href=""#"">Back to top</a>"
+  html "<p><a href=""#"">Back to top</a></p>"
   html "</div>"
   html "<script type=""text/javascript"" src=""/";AppName$;"/bootstrap/js/jquery.min.js""></script>"
   html "<script type=""text/javascript"" src=""/";AppName$;"/bootstrap/js/bootstrap.min.js""></script>"
@@ -2042,6 +2044,7 @@ sub pageIndex
           html "<h4><a name="""; letter$; """></a>"; letter$; "</h4><p>"
         end if
         link #exists, pageName$, loadPage
+        #exists setid("link";i)
         #exists setkey(pageName$)
         html "<br />"
       next i
@@ -2069,6 +2072,7 @@ sub pageList
           html "<li class=""" + liClass$ + """>"
         end if
         link #exists, pageName$, loadPage
+        #exists setid("page";i)
         #exists setkey(pageName$)
         html "</li>"
       next i
@@ -2107,6 +2111,7 @@ sub pageSearch string$
           print : print
         end if
         link #exists, pageName$, loadPage
+        #exists setid("link";i)
         #exists setkey(pageName$)
         print
         start = instr(lower$(pageContent$), lower$(word$(string$, 1)))
@@ -2152,6 +2157,7 @@ sub recentChanges
           html "</h4><p>"
         end if
         link #exists, pageName$, loadPage
+        #exists setid("link";i)
         #exists setkey(pageName$)
         html "<br />"
       next i
@@ -2429,7 +2435,6 @@ sub renderPage content$
           name$ = left$(name$, j - 1)
         end if
         if projectExists(name$) then
-          if name$ = "lightbox" then lightboxScript = 1 
           run name$, #object
           if #object isblock() then
             call closeCurrentBlock
@@ -2476,9 +2481,9 @@ sub renderPage content$
     ' ===========
 
     ' Hash tag #word (but not #word# which is heading 6)
-    if mid$(content$, i, 1) = "#" then
-      for j = i + 1 to len(content$)
-        if instr("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", mid$(content$, j, 1)) = 0 then
+    if mid$(content$, i, 1) = "#" and isAlpha(mid$(content$, i + 1, 1)) then
+      for j = i + 2 to len(content$)
+        if not(isAlphaNum(mid$(content$, j, 1))) then
           j = j - 1
           exit for
         end if
@@ -2486,6 +2491,8 @@ sub renderPage content$
       if j > i and mid$(content$, j + 1, 1) <> "#" then
         word$ = mid$(content$, i + 1, j - i)
         link #hashtag, word$, [findHashTag]
+        #hashtag setid("link";linkCount)
+        linkCount = linkCount + 1
         #hashtag setkey(word$)
         i = j + 1
         goto [nextChar]
@@ -2758,6 +2765,8 @@ sub renderPage content$
             else
               link #exists, url$, loadPage
             end if
+            #exists setid("link";linkCount)
+            linkCount = linkCount + 1
             if buttonClass$ <> "" then #exists cssclass(buttonClass$)
           end if
           #exists setkey(url$)
@@ -2770,6 +2779,8 @@ sub renderPage content$
             else
               link #doesntExist, "?" + url$, [createPage]
             end if
+            #doesntExists setid("link";linkCount)
+            linkCount = linkCount + 1
             if buttonClass$ <> "" then #doesntExist cssclass(buttonClass$)
           end if
           #doesntExist setkey(url$)
@@ -2906,7 +2917,7 @@ sub closeCurrentBlock
     call unwindBlockStack
   else
     call unwindTagStack
-    if #blockStack peek$() <> "</div>" then #blockStack pop$()
+    if #blockStack peek$() <> "</div>" then html #blockStack pop$()
   end if
 end sub
 
@@ -3178,6 +3189,34 @@ function isAdmin(id)
     if #db hasanswer() then isAdmin = 1
     call disconnect
   end if
+end function
+
+'
+' Return true if string (str$) is only composed of letters (a-z,A-Z)
+'
+function isAlpha(str$)
+  isAlpha = 1
+  for i = 1 to len(str$)
+    c$ = mid$(str$, i, 1)
+    if not(c$ >= "a" and c$ <= "z") and not(c$ >= "A" and c$ <= "Z") then
+      isAlpha = 0
+      exit for
+    end if
+  next i
+end function
+
+'
+' Return true if string (str$) is only composed of letters (a-z,A-Z) or numbers [0-9]
+'
+function isAlphaNum(str$)
+  isAlphaNum = 1
+  for i = 1 to len(str$)
+    c$ = mid$(str$, i, 1)
+    if not(c$ >= "a" and c$ <= "z") and not(c$ >= "A" and c$ <= "Z") and not(c$ >= "0" and c$ <= "9") then
+      isAlphaNum = 0
+      exit for
+    end if
+  next i
 end function
 
 '
