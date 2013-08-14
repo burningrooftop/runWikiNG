@@ -2779,7 +2779,7 @@ sub renderPage content$
             else
               link #doesntExist, "?" + url$, [createPage]
             end if
-            #doesntExists setid("link";linkCount)
+            #doesntExist setid("link";linkCount)
             linkCount = linkCount + 1
             if buttonClass$ <> "" then #doesntExist cssclass(buttonClass$)
           end if
