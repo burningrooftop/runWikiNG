@@ -3,6 +3,13 @@
 ' By Neal Collins (www.staddle.net)
 ' Based on runWiki by Carl Gundel of Shoptalk Systems
 
+global pathSeparator$
+if Platform$ = "unix" then
+  pathSeparator$ = "/"
+else
+  pathSeparator$ = "\"
+end if
+
 ' *******************************************
 ' ** CHANGE THESE VALUES TO SUIT YOUR SITE **
 ' *******************************************
@@ -25,18 +32,13 @@ DatabaseDir$ = DefaultDir$ + pathSeparator$ + AppName$
 ' ***************************************
 
 global Site$, adminNewSites
-global pathSeparator$, siteUrl$, baseUrl$, dateFormat$
+global siteUrl$, baseUrl$, dateFormat$
 global AppName$, DatabaseDir$, DatabaseFilename$, uploadDir$, themeDir$, cssFile$
 global siteName$, siteDesc$, allowRegistration, allowObjects, allowPlugins, allowUploads, showBreadcrumbs, siteTheme$, newWindow
 global userDB$
 global errorMessage$, successMessage$
 global PostBlockHTML$
-
-if Platform$ = "unix" then
-  pathSeparator$ = "/"
-else
-  pathSeparator$ = "\"
-end if
+global imgId
 
 Site$ = getUrlParam$("site")
 if Site$ = "" then Site$ = AppName$
@@ -102,7 +104,7 @@ if siteName$ = "" then
   goto [setupUserDB]
 else
   if userDB$ <> "" then
-    userdbFilename$ = DefaultDir$ + pathSeparator$ + userDB$
+    userdbFilename$ = DatabaseDir$ + pathSeparator$ + userDB$
     #user setDatabaseName(userdbFilename$)
     #userList setDatabaseName(userdbFilename$)
   end if
@@ -327,6 +329,7 @@ wait
   #db execute("update page_history set name = "; quote$(name$); " where upper(name) = upper("; quote$(currentName$); ")")
   call disconnect
 
+  call dropBreadcrumb ' remove the old name from the breadcrumb
   call loadPage name$
   wait
 
@@ -438,6 +441,7 @@ wait
   html "</h1>"
   if preview = 1 then
     preview = 0
+    imgId = 0
     if newSidebarContent$ <> "" then html "<div class=""row-fluid""><div class=""span8"">"
     html "<div class=""well"">"
     call renderPage newContent$
@@ -508,6 +512,9 @@ wait
   html "<li><a href=""#"" onclick=""mod_selection('^ ', '', 'Heading')"">New Header Cell</a></li>"
   html "<li><a href=""#"" onclick=""mod_selection('| ', '', 'Item')"">New Data Cell</a></li>"
   html "</ul>"
+  html "</div>"
+  html "<div class=""btn-group"">"
+  html "<a class=""btn"" href=""http://www.staddle.net/seaside/go/runbasicpersonal?app=runWikiNG&site=demo&page=documentation"" target=""_blank""><i class=""icon-question-sign""></i> Help</a>"
   html "</div>"
   html "</div>"
 
@@ -876,6 +883,8 @@ wait
   checkbox #showBreadcrumbs, "Show Breadcrumbs", showBreadcrumbs
   html "</label><label class=""checkbox"">"
   checkbox #newWindow, "Open External Links in a New Window", newWindow
+  html "</label><label>ImageMagick Directory</label>"
+  textbox #convertPath, convertPath$
   html "</label></fieldset>"
   html "<fieldset><legend>Mail Configuration</legend>"
   html "<label>SMTP Host</label>"
@@ -914,16 +923,22 @@ wait
   smtpPassword$ = #smtpPassword contents$()
   fromAddress$ = #fromAddress contents$()
   siteTheme$ = #theme selection$()
+  convertPath$ = #convertPath contents$()
   
   errorMessage$ = ""
 
   if siteName$ = "" then errorMessage$ = appendMessage$(errorMessage$, "The Site Name must be supplied.")
   if dateFormat$ = "" then errorMessage$ = appendMessage$(errorMessage$, "The Date Format must be supplied.")
+  if convertPath$ <> "" then
+    if not(fileExists(convertPath$)) then
+      errorMessage$ = appendMessage$(errorMessage$, "The ImageMagick Directory does not exist.")
+    end if
+  end if
 
   if errorMessage$ <> "" then goto [site]
   
   call execute "delete from site"
-  call execute "insert into site (name, description, url, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window, userdb, uploads) values ("; quote$(siteName$); ","; quote$(siteDesc$); ","; quote$(siteUrl$); ","; quote$(dateFormat$); ","; allowRegistration; ","; allowObjects; ","; allowPlugins; ","; showBreadcrumbs; ","; quote$(smtpHost$); ","; quote$(smtpPassword$); ","; quote$(fromAddress$); ","; quote$(siteTheme$); ","; newWindow; ","; quote$(userDB$); ","; allowUploads; ")"
+  call execute "insert into site (name, description, url, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window, userdb, uploads, convertpath) values ("; quote$(siteName$); ","; quote$(siteDesc$); ","; quote$(siteUrl$); ","; quote$(dateFormat$); ","; allowRegistration; ","; allowObjects; ","; allowPlugins; ","; showBreadcrumbs; ","; quote$(smtpHost$); ","; quote$(smtpPassword$); ","; quote$(fromAddress$); ","; quote$(siteTheme$); ","; newWindow; ","; quote$(userDB$); ","; allowUploads; ","; quote$(convertPath$); ")"
 
   call loadSite
 
@@ -1257,7 +1272,7 @@ wait
   end if
 
   if userDB$ <> "" then
-    userdbFilename$ = DefaultDir$ + pathSeparator$ + userDB$
+    userdbFilename$ = DatabaseDir$ + pathSeparator$ + userDB$
     #user setDatabaseName(userdbFilename$)
     #userList setDatabaseName(userdbFilename$)
   end if
@@ -1342,7 +1357,7 @@ wait
   end if
 
   if instr(#siteId contents$(), pathSeparator$) > 0 then
-    errorMessage$ = "The site identifier must not contain '" + pathSeparator + "'."
+    errorMessage$ = "The site identifier must not contain '" + pathSeparator$ + "'."
     goto [newSite]
   end if
 
@@ -1407,6 +1422,16 @@ sub addBreadcrumb name$
     next i
   end if
   if not(truncate) then breadcrumbs$(i) = name$
+end sub
+
+'
+' Remove the last breadcrumb
+'
+sub dropBreadcrumb
+  for i = 10 to 0 step -1
+    if breadcrumbs$(i) <> "" then exit for
+  next i
+  breadcrumbs$(i) = ""
 end sub
 
 '
@@ -1487,7 +1512,7 @@ sub createDatabase
     ' New database, create all the required tables
 
     ' Site table
-    #db execute("create table site (name text, description text, url text, dateformat text, registration int, objects int, plugins int, breadcrumbs int, smtphost text, smtppassword text, fromaddress text, theme text, new_window int, userdb text, uploads int)")
+    #db execute("create table site (name text, description text, url text, dateformat text, registration int, objects int, plugins int, breadcrumbs int, smtphost text, smtppassword text, fromaddress text, theme text, new_window int, userdb text, uploads int, convertpath text)")
 
     ' Pages table
     #db execute("create table pages (name text, content text, date int, time int, hide int, user int, locked int, sidebar text)")
@@ -1504,7 +1529,7 @@ sub createDatabase
 
     ' DB version table
     #db execute("create table db_version (version integer)")
-    #db execute("insert or replace into db_version(version) values (2)")
+    #db execute("insert or replace into db_version(version) values (3)")
   else
     ' Existing database
 
@@ -1529,7 +1554,15 @@ sub createDatabase
       #db execute("alter table page_history add sidebar text")
     end if
 
-    if dbVersion <> 2 then #db execute("insert or replace into db_version(version) values ("; dbVersion; ")")
+    if dbVersion = 2 then
+      ' Upgrade from version 2 database
+      #db execute("alter table site add convertpath text")
+    end if
+
+    if dbVersion <> 3 then
+      #db execute("delete from db_version")
+      #db execute("insert into db_version(version) values (3)")
+    end if
   end if
   call disconnect
 end sub
@@ -1701,13 +1734,14 @@ sub displayCurrentPage
   if specialPage(currentName$) then
     select case currentName$
       case "Page Index"
-        call pageIndex
+        call pageIndex 0
       case "Recent Changes"
         call recentChanges
       case "Search Results"
-        call pageSearch searchText$
+        call pageSearch searchText$ 0
     end select
   else
+    imgId = 0
     call renderPage currentContent$
     if #user id() <> 0 and pageDeleted then
       html "<p>"
@@ -1920,9 +1954,10 @@ sub loadSite
   siteTheme$ = ""
   newWindow = 0
   userDB$ = ""
+  convertPath$ = ""
 
   call connect
-  #db execute("select name, description, url, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window newwindow, userdb, uploads from site")
+  #db execute("select name, description, url, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window newwindow, userdb, uploads, convertpath from site")
   if #db hasanswer() then
     #result = #db #nextRow()
     siteName$ = #result name$()
@@ -1940,6 +1975,7 @@ sub loadSite
     newWindow = #result newwindow()
     userDB$ = #result userdb$()
     allowUploads = #result uploads()
+    convertPath$ = #result convertpath$()
     
     if not(fileExists(themeDir$ + pathSeparator$ + siteTheme$ + ".min.css")) then siteTheme$ = "bootstrap"
     cssFile$ = "/" + AppName$ + "/bootstrap/css/" + siteTheme$ + ".min.css"
@@ -1948,7 +1984,7 @@ sub loadSite
       #user setSmtpProfile(smtpHost$, smtpPassword$, fromAddress$)
     end if
     if siteUrl$ <> "" then 
-      baseUrl$ = siteUrl$ + "seaside/go/runbasicpersonal?app=" + AppName$ + "&amp;site=" + urlEncode$(Site$)
+      baseUrl$ = siteUrl$ + "seaside/go/runbasicpersonal?app=" + AppName$ + "&site=" + urlEncode$(Site$)
     else
       baseUrl$ = ""
     end if
@@ -2018,37 +2054,49 @@ end sub
 '
 ' Render the Page Index page
 '
-sub pageIndex
+sub pageIndex format
+  ' formats:
+  ' 0 = long format
+  ' 1 = short format
+  ' 2 = list
   call connect
-    #db execute("select distinct upper(substr(name, 1, 1)) letter from pages order by upper(name)")
-    if #db hasanswer() then
-      html "<p>"
-      for i = 1 to #db rowcount()
-        #row = #db #nextrow()
-        letter$ = #row letter$()
-        html "<a href=""#"; letter$; """>"; letter$; "</a> "
-      next i
-      html "</p>"
+    if format = 0 then
+      #db execute("select distinct upper(substr(name, 1, 1)) letter from pages where upper(name) <> 'HOME' order by upper(name)")
+      if #db hasanswer() then
+        html "<p>"
+        for i = 1 to #db rowcount()
+          #row = #db #nextrow()
+          letter$ = #row letter$()
+          html "<a href=""#"; letter$; """>"; letter$; "</a> "
+        next i
+        html "</p>"
+      end if
     end if
 
     letter$ = ""
 
-    #db execute("select name from pages order by upper(name)")
+    #db execute("select name from pages where upper(name) <> 'HOME' order by upper(name)")
     if #db hasanswer() then
+      if format = 1 then html "<p>"
       for i = 1 to #db rowcount()
         #row = #db #nextrow()
         pageName$ = #row name$()
-        if letter$ <> upper$(left$(pageName$, 1)) then
+        if format = 0 and letter$ <> upper$(left$(pageName$, 1)) then
           if letter$ <> "" then html "</p>"
           letter$ = upper$(left$(pageName$, 1))
           html "<h4><a name="""; letter$; """></a>"; letter$; "</h4><p>"
         end if
+        if format = 2 and i > 1 then html "<li>"
         link #exists, pageName$, loadPage
         #exists setid("link";i)
         #exists setkey(pageName$)
-        html "<br />"
+        if format = 2 then
+          if i < #db rowcount() then html "</li>"
+        else
+          html "<br />"
+        end if
       next i
-      html "</p>"
+      if format <> 2 then html "</p>"
     end if
   call disconnect
 end sub
@@ -2083,7 +2131,13 @@ end sub
 '
 ' Render the search results page for the search string (string$)
 '
-sub pageSearch string$
+sub pageSearch string$ format
+  ' Formats:
+  ' 0 = long format
+  ' 1 = short format
+  ' 2 = list
+  ' 3 = table
+
   ' Build the search pattern
   pattern$ = "%"
   i = 1
@@ -2094,37 +2148,67 @@ sub pageSearch string$
     pattern$ = pattern$ + w$ + "%"
   wend
     
-  sql$ = "select name, content from pages where name like ";quote$(pattern$);" or content like ";quote$(pattern$);" order by upper(name)"
+  sql$ = "select name, content from pages where name like ";quote$(pattern$);" or content like ";quote$(pattern$);" or sidebar like ";quote$(pattern$);" order by upper(name)"
 
   letter$ = ""
   call connect
     #db execute(sql$)
     if #db hasAnswer() then
+      if format <> 2 then
+        html "<p>"
+      end if
       for i = 1 to #db rowcount()
         #row = #db #nextRow()
         pageName$ = #row name$()
         pageContent$ = #row content$()
-        if letter$ <> upper$(left$(pageName$, 1)) then
+        if format = 0 and letter$ <> upper$(left$(pageName$, 1)) then
           letter$ = upper$(left$(pageName$, 1))
           print
-          html "<strong>"; letter$; "</strong>"
-          print : print
+          html "<strong>"; letter$; "</strong><br /><br />"
         end if
+        select case format
+          case 2
+            if i > 1 then html "<li>"
+          case 3
+            if i > 1 then html "<tr><td>"
+        end select
         link #exists, pageName$, loadPage
         #exists setid("link";i)
         #exists setkey(pageName$)
-        print
-        start = instr(lower$(pageContent$), lower$(word$(string$, 1)))
-        while mid$(pageContent$, start, 1) <> chr$(10) and start > 0
-          start = start - 1
-        wend
-        endLine = instr(pageContent$ + chr$(10), chr$(10), start + 1)
-        print mid$(pageContent$, start, endLine - start)
-        print
+        select case format
+          case 2
+            if i < #db rowcount() then html "</li>"
+          case 3
+            html "</td>"
+          case else
+            html "<br />"
+        end select
+        if format = 0 or format = 3 then
+          start = instr(lower$(pageContent$), lower$(word$(string$, 1)))
+          while mid$(pageContent$, start, 1) <> chr$(10) and start > 0
+            start = start - 1
+          wend
+          endLine = instr(pageContent$ + chr$(10), chr$(10), start + 1)
+          if format = 3 then html "<td>"
+          print mid$(pageContent$, start, endLine - start);
+          if format = 3 then
+            if i < #db rowcount() then html "</td></tr>"
+          else
+            html "<br />"
+          end if
+        end if
       next i
+      if format <> 2 then
+        html "</p>"
+      end if
     else
-      print
-      print "No pages containing """ + string$ + """ found."
+      if format = 2 then
+        print "No pages containing """ + string$ + """ found."
+      else
+        html "<div class=""alert alert-warning""><p>"
+        print "No pages containing """ + string$ + """ found."
+        html "</p></div>"
+      end if
     end if
   call disconnect
 end sub
@@ -2242,7 +2326,7 @@ sub renderPage content$
         end if
       end if
 
-      ' New list of list item
+      ' New list or list item
       if mid$(content$, i, 1) = "*" and mid$(content$, i + 1, 1) <> "*" then
         if #blockStack peekHead$() = "</ul>" then
           call unwindTagStack
@@ -2325,13 +2409,13 @@ sub renderPage content$
     end if
 
     ' Alert boxes
-    if mid$(content$, i, 8) = "</alert>" then
+    if lower$(mid$(content$, i, 8)) = "</alert>" then
       call unwindBlockStack
       i = i + 8
       goto [nextChar]
     end if
       
-    if mid$(content$, i, 7) = "<alert>" then
+    if lower$(mid$(content$, i, 7)) = "<alert>" then
       call unwindBlockStack
       html "<div class=""alert"">"
       #blockStack push("</div>")
@@ -2339,7 +2423,7 @@ sub renderPage content$
       goto [nextChar]
     end if
 
-    if mid$(content$, i, 14) = "<alert-danger>" then
+    if lower$(mid$(content$, i, 14)) = "<alert-danger>" then
       call unwindBlockStack
       html "<div class=""alert alert-danger"">"
       #blockStack push("</div>")
@@ -2347,7 +2431,7 @@ sub renderPage content$
       goto [nextChar]
     end if
 
-    if mid$(content$, i, 13) = "<alert-error>" then
+    if lower$(mid$(content$, i, 13)) = "<alert-error>" then
       call unwindBlockStack
       html "<div class=""alert alert-error"">"
       #blockStack push("</div>")
@@ -2355,7 +2439,7 @@ sub renderPage content$
       goto [nextChar]
     end if
 
-    if mid$(content$, i, 12) = "<alert-info>" then
+    if lower$(mid$(content$, i, 12)) = "<alert-info>" then
       call unwindBlockStack
       html "<div class=""alert alert-info"">"
       #blockStack push("</div>")
@@ -2363,7 +2447,7 @@ sub renderPage content$
       goto [nextChar]
     end if
 
-    if mid$(content$, i, 15) = "<alert-success>" then
+    if lower$(mid$(content$, i, 15)) = "<alert-success>" then
       call unwindBlockStack
       html "<div class=""alert alert-success"">"
       #blockStack push("</div>")
@@ -2371,7 +2455,7 @@ sub renderPage content$
       goto [nextChar]
     end if
 
-    if mid$(content$, i, 15) = "<alert-warning>" then
+    if lower$(mid$(content$, i, 15)) = "<alert-warning>" then
       call unwindBlockStack
       html "<div class=""alert alert-warning"">"
       #blockStack push("</div>")
@@ -2380,13 +2464,13 @@ sub renderPage content$
     end if
 
     ' Hero Unit
-    if mid$(content$, i, 7) = "</hero>" then
+    if lower$(mid$(content$, i, 7)) = "</hero>" then
       call unwindBlockStack
       i = i + 7
       goto [nextChar]
     end if
 
-    if mid$(content$, i, 6) = "<hero>" then
+    if lower$(mid$(content$, i, 6)) = "<hero>" then
       call unwindBlockStack
       html "<div class=""hero-unit"">"
       #blockStack push("</div>")
@@ -2395,15 +2479,53 @@ sub renderPage content$
     end if
 
     ' Hide a section
-    if mid$(content$, i, 6) = "<hide>" then
-      j = instr(content$ + "</hide>", "</hide>", i + 6)
+    if lower$(mid$(content$, i, 6)) = "<hide>" then
+      j = instr(lower$(content$) + "</hide>", "</hide>", i + 6)
       i = j + 7
       goto [nextChar]
     end if
 
+    ' Page Index
+    if lower$(mid$(content$, i, 9)) = "@@pages@@" then
+      i = i + 9
+      if #blockStack peekHead$() = "</ul>" or #blockStack peekHead$() = "</ol>" then
+        ' Display in list format
+        call pageIndex 2
+      else
+        ' Display in short format
+        call closeCurrentBlock
+        call pageIndex 1
+      end if
+      goto [nextChar]
+    end if
+
+    ' Search Results
+    if lower$(mid$(content$, i, 9)) = "@@search " then
+      j = instr(content$ + "@@", "@@", i + 9)
+      text$ = trim$(mid$(content$, i + 9, j - i - 9))
+      i = j + 2
+      if text$ <> "" then
+        select case #blockStack peekHead$()
+          case "</ul>"
+            ' Display in list format
+            call pageSearch text$ 2
+          case "</ol>"
+            ' Display in list format
+            call pageSearch text$ 2
+          case "</table>"
+            call pageSearch text$ 3
+          case else
+            ' Display in short format
+            call closeCurrentBlock
+            call pageSearch text$ 1
+        end select
+      end if
+      goto [nextChar]
+    end if
+
     ' Embedded object
-    if mid$(content$, i, 8) = "<object>" then
-      j = instr(content$ + "</object>", "</object>", i + 8)
+    if lower$(mid$(content$, i, 8)) = "<object>" then
+      j = instr(lower$(content$) + "</object>", "</object>", i + 8)
       name$ = mid$(content$, i + 8, j - i - 8)
       i = j + 9
       if allowObjects = 0 then
@@ -2422,8 +2544,8 @@ sub renderPage content$
     end if
 
     ' Plugin
-    if mid$(content$, i, 8) = "<plugin>" then
-      j = instr(content$ + "</plugin>", "</plugin>", i + 8)
+    if lower$(mid$(content$, i, 8)) = "<plugin>" then
+      j = instr(lower$(content$) + "</plugin>", "</plugin>", i + 8)
       name$ = mid$(content$, i + 8, j - i - 8)
       i = j + 9
       if allowPlugins = 0 then
@@ -2453,9 +2575,9 @@ sub renderPage content$
     end if
 
     ' File block
-    if mid$(content$, i, 6) = "<file>" then
+    if lower$(mid$(content$, i, 6)) = "<file>" then
       call unwindBlockStack
-      j = instr(content$ + "</file>", "</file>", i + 6)
+      j = instr(lower$(content$) + "</file>", "</file>", i + 6)
       text$ = mid$(content$, i + 6, j - i - 6)
       i = j + 7
       html "<pre class=""file"">"
@@ -2465,9 +2587,9 @@ sub renderPage content$
     end if
 
     ' Code block
-    if mid$(content$, i, 6) = "<code>" then
+    if lower$(mid$(content$, i, 6)) = "<code>" then
       call unwindBlockStack
-      j = instr(content$ + "</code>", "</code>", i + 6)
+      j = instr(lower$(content$) + "</code>", "</code>", i + 6)
       text$ = mid$(content$, i + 6, j - i - 7)
       i = j + 7
       html "<pre class=""code"">"
@@ -2641,7 +2763,7 @@ sub renderPage content$
       select case lower$(right$(url$, 4))
       case ".gif", ".jpg", ".png"
         if lightbox then
-          imgId = int(rnd(1) * 100)
+          imgId = imgId + 1
           html "<a href=""#lightbox";imgId;""" data-toggle=""lightbox"">"
         end if
         html "<img src="""
@@ -3259,10 +3381,11 @@ function makeThumbnail$(image$, size$)
       end if
       if originalTimestamp$ > thumbnailTimestamp$ then
         if Platform$ = "win32" then
-          command$ = ProjectsRoot$ + pathSeparator$ + AppName$ + "_project" + pathSeparator$ + "win32" + pathSeparator$ + "convert.exe"
+          command$ = "convert.exe"
         else
           command$ = "convert"
         end if
+        if convertPath$ <> "" then command$ = convertPath$ + pathSeparator$ + command$
         a$ = shell$(command$; " """; original$; """ -resize """; size$; ">"" """; thumbnail$; """")
       end if
     end if
