@@ -17,46 +17,45 @@ end if
 ' Set this to the application name
 AppName$ = "runWikiNG"
 
-' If non-zero, allow new sites to be defined on the fly
-newSites = 0
-
 ' If non-zero, allow admins to create new sites
 adminNewSites = 1
 
 ' Location used to store runWikiNG databases
-' DatabaseDir$ = DefaultDir$ ' Use this for compatibility with older versions
 DatabaseDir$ = DefaultDir$ + pathSeparator$ + AppName$
+
+' Location used to store runWikiNG sites
+SitesDir$ = ResourcesRoot$ + pathSeparator$ + AppName$ + pathSeparator$ + "sites"
 
 ' ***************************************
 ' ** END OF USER CONFIGURATION SECTION **
 ' ***************************************
 
 global Site$, adminNewSites
-global siteUrl$, baseUrl$, dateFormat$
-global AppName$, DatabaseDir$, DatabaseFilename$, uploadDir$, themeDir$, cssFile$
-global siteName$, siteDesc$, allowRegistration, allowObjects, allowPlugins, allowUploads, showBreadcrumbs, siteTheme$, newWindow
+global dateFormat$
+global AppName$, DatabaseDir$, DatabaseFilename$, SitesDir$, uploadDir$, themeDir$, cssFile$
+global siteName$, allowRegistration, allowObjects, allowPlugins, allowUploads, showBreadcrumbs, siteTheme$, newWindow
 global userDB$
 global errorMessage$, successMessage$
 global PostBlockHTML$
 global imgId
 
-Site$ = getUrlParam$("site")
-if Site$ = "" then Site$ = AppName$
+Site$ = lower$(getUrlParam$("site"))
+if Site$ = "" then Site$ = "runwiking"
 
 DatabaseFilename$ = DatabaseDir$ + pathSeparator$ + Site$ + ".db"
 
-if newSites = 0 and Site$ <> AppName$ then
+if Site$ <> "runwiking" then
   ' Check that database file already exists
   files #site, DatabaseFilename$
   if not(#site hasAnswer()) then
     cls
-    head "<link href=""/"; AppName$; "/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
+    head "<link href=""/";AppName$;"/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
     html "</div><div class=""container-fluid""><br/>"
     html "<div class=""alert alert-block alert-error"">"
     html "<h4>Unknown Site - "
     print Site$;
     html "</h4>"
-    html "<p>The site you are trying to visit does not exist and the creation of new sites has been disabled.</p>"
+    html "<p>The site you are trying to visit does not exist.</p>"
     html "</div></div><div>"
     end
   end if
@@ -88,7 +87,7 @@ on error goto [handleError]
 run #user, "userObject"
 run #userList, "userObject"
 
-uploadDir$ = ResourcesRoot$ + pathSeparator$ + Site$
+uploadDir$ = SitesDir$ + pathSeparator$ + Site$
 themeDir$ = ResourcesRoot$ + pathSeparator$ + AppName$ + pathSeparator$ + "bootstrap" + pathSeparator$ + "css"
 
 call createDirectories
@@ -131,7 +130,11 @@ wait
 ' ======================
 
 [login]
+  username$ = ""
+
+[retryLogin]
   call adminHeading "Login"
+  call displayMessages
   html "<div class=""alert alert-info"">Please login using either your username or email address.</div>"
   if allowRegistration then
     html "<div class=""alert"">"
@@ -140,16 +143,18 @@ wait
     print ".";
     html "</div>"
   end if
-  if errorMessage$ = "" then
-    username$ = ""
-  else
-    call displayMessages
-  end if
-  html "<label class=""required"">Username or Email Address</label>"
+  html "<div class=""form-horizontal"">"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Username or Email</label>"
+  html "<div class=""controls"">"
   textbox #username, username$
   #username setfocus()
-  html "<label>Password</label>"
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label"">Password</label>"
+  html "<div class=""controls"">"
   passwordbox #password, ""
+  html "</div></div>"
   html "<div class=""form-actions"">"
   button #login, "Log in", [doLogin]
   #login cssclass("btn btn-success")
@@ -167,23 +172,26 @@ wait
   username$ = #username contents$()
   if (#user login(username$, #password contents$()) = 0) then
     errorMessage$ = #user errorMessage$()
-    goto [login]
+    goto [retryLogin]
   end if
 
   call displayCurrentPage
   wait
 
 [forgotPassword]
+  email$ = ""
+
+[retryForgotPassword]
   call adminHeading "Forgot Password"
-  if errorMessage$ = "" then
-    email$ = ""
-  else
-    call displayMessages
-  end if
+  call displayMessages
   html "<p>Enter your user name or email address. Your password will be reset and emailed to your email address.</p>"
-  html "<label class=""required"">Username or Email Address</label>"
+  html "<div class=""form-horizontal"">"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Username or Email</label>"
+  html "<div class=""controls"">"
   textbox #email, email$
   #email setfocus()
+  html "</div></div>"
   html "<div class=""form-actions"">"
   button #reset, "Reset Password", [resetPassword]
   #reset cssclass("btn btn-accept")
@@ -197,7 +205,7 @@ wait
 [resetPassword]
   if #user lostPassword(#email contents$()) = 0 then
     errorMessage$ = #user errorMessage$()
-    goto [forgotPassword]
+    goto [retryForgotPassword]
   end if
 
   call adminHeading "Password Reset"
@@ -514,7 +522,7 @@ wait
   html "</ul>"
   html "</div>"
   html "<div class=""btn-group"">"
-  html "<a class=""btn"" href=""http://www.staddle.net/seaside/go/runbasicpersonal?app=runWikiNG&site=demo&page=documentation"" target=""_blank""><i class=""icon-question-sign""></i> Help</a>"
+  html "<a class=""btn"" href=""http://www.staddle.net/seaside/go/runbasicpersonal?app=runWikiNG&site=getrunwiki&page=documentation"" target=""_blank""><i class=""icon-question-sign""></i> Help</a>"
   html "</div>"
   html "</div>"
 
@@ -543,7 +551,7 @@ wait
   button #cancel, "Cancel", [cancelEdit]
   #cancel cssclass("btn")
   html "</p><p><i class=""icon-ok-circle""></i> <b>Page Options</b><br/><label class=""checkbox inline"">"
-  checkbox #hide, "Don't show in page menu ", newHideFlag
+  checkbox #hide, "Don't show in top menu ", newHideFlag
   html "</label>"
   if isAdmin(#user id()) then
     html " <label class=""checkbox inline"">"
@@ -602,7 +610,6 @@ wait
     call connect
     #db execute("insert into pages (name, content, date, time, hide, user, locked, sidebar) values ("; quote$(currentName$); ","; quote$(newContent$); ","; date$("days"); ","; time$("seconds"); ","; newHideFlag; ","; #user id(); ","; newPageLocked; ","; quote$(newSidebarContent$); ")")
     call disconnect
-    call generateSitemap
   else
     call backupCurrentPage
     query$ = "update pages set content="; quote$(newContent$); ",hide="; newHideFlag; ",user="; #user id(); ",date="; date$("days"); ",time="; time$("seconds"); ",locked="; newPageLocked; ",sidebar="; quote$(newSidebarContent$); " where upper(name) = upper("; quote$(currentName$); ")"
@@ -645,7 +652,6 @@ wait
   call backupCurrentPage
   query$ = "delete from pages where upper(name) = upper("; quote$(currentName$); ")"
   call execute query$
-  call generateSitemap
   successMessage$ = "Page named " + currentName$ + " has been deleted."
   pageTimestamp$ = ""
   pageUpdateBy$ = ""
@@ -726,7 +732,7 @@ wait
   html "<tbody>"
   for i = 0 to filecount - 1
     html "<tr><td>"
-    html "<a href=""/" + Site$ + "/" + urlEncode$(fileNames$(i)) + """>"
+    html "<a href=""/" + AppName$ + "/sites/" + Site$ + "/" + urlEncode$(fileNames$(i)) + """>"
     print fileNames$(i);
     html "</a>"
     html "</td><td>"
@@ -846,72 +852,96 @@ wait
       end if
     next i
   end if
-  
+
+  newSitename$ = siteName$
+
+[retrySite]
+
   call adminHeading "Site Settings"
-  if errorMessage$ <> "" then
-    html "<div class=""alert alert-block alert-error"">"
-    html "<a class=""close"" data-dismiss=""alert"" href=""#"">&times;</a>"
-    html errorMessage$
-    html "</div>"
-    errorMessage$ = ""
-  end if
+  call displayMessages
+  html "<div class=""form-horizontal"">"
   html "<fieldset><legend>Site Details</legend>"
-  html "<label class=""required"">Site Name</label>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Site Name</label>"
+  html "<div class=""controls"">"
   textbox #siteName, siteName$, 40
-  html "<label>Site Description</label>"
-  textbox #siteDesc, siteDesc$, 80
-  html "<label>Site URL</label>"
-  textbox #siteUrl, siteUrl$, 80
+  html "</div></div>"
   html "</fieldset>"
   html "<fieldset><legend>Site Options</legend>"
-  html "<label class=""required"">Theme</label>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Theme</label>"
+  html "<div class=""controls"">"
   listbox #theme, themes$(), 1
   #theme select(siteTheme$)
-  html "<label class=""required"">Date Format</label>"
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Date Format</label>"
   if dateFormat$ = "" then dateFormat$ = "mm/dd/yyyy"
+  html "<div class=""controls"">"
   textbox #dateFormat, dateFormat$, 20
   html "<span class=""help-inline"">(eg. mm/dd/yyyy, dd/mm/yyyy, yyyy-mm-dd, etc)</span>"
-  html "<label class=""checkbox"">"
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<div class=""controls"">"
+  html "<label class=""checkbox inline"">"
   checkbox #allowRegistration, "Allow Registration ", allowRegistration
-  html "</label><label class=""checkbox"">"
+  html "</label><br/><label class=""checkbox inline"">"
   checkbox #allowUploads, "Allow Uploads", allowUploads
-  html "</label><label class=""checkbox"">"
+  html "</label><label class=""checkbox inline"">"
   checkbox #allowObjects, "Allow Objects", allowObjects
-  html "</label><label class=""checkbox"">"
+  html "</label><label class=""checkbox inline"">"
   checkbox #allowPlugins, "Allow Plugins", allowPlugins
-  html "</label><label class=""checkbox"">"
+  html "</label><br/><label class=""checkbox inline"">"
   checkbox #showBreadcrumbs, "Show Breadcrumbs", showBreadcrumbs
-  html "</label><label class=""checkbox"">"
+  html "</label><br/><label class=""checkbox inline"">"
   checkbox #newWindow, "Open External Links in a New Window", newWindow
-  html "</label><label>ImageMagick Directory</label>"
+  html "</label>"
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label"">ImageMagick Directory</label>"
+  html "<div class=""controls"">"
   textbox #convertPath, convertPath$
-  html "</label></fieldset>"
+  html "</div></div>"
+  html "</fieldset>"
+  html "<div class=""control-group"">"
   html "<fieldset><legend>Mail Configuration</legend>"
-  html "<label>SMTP Host</label>"
+  html "<label class=""control-label"">SMTP Host</label>"
+  html "<div class=""controls"">"
   textbox #smtpHost, smtpHost$, 40
-  html "<label>SMTP Password (if required)</label>"
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label"">SMTP Password (if required)</label>"
+  html "<div class=""controls"">"
   passwordbox #smtpPassword, smtpPassword$, 40
-  html "<label>From Address</label>"
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label"">Repeat SMTP Password</label>"
+  html "<div class=""controls"">"
+  passwordbox #verifySmtpPassword, verifySmtpPassword$, 40
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label"">From Address</label>"
+  html "<div class=""controls"">"
   textbox #fromAddress, fromAddress$, 40
+  html "</div></div>"
   html "</fieldset>"
   html "<div class=""form-actions"">"
-  button #save, "Save", [acceptSite]
-  #save cssclass("btn btn-success")
-  html " "
-  button #cancel, "Cancel", [cancelSite]
-  #cancel cssclass("btn")
+  if siteName$ <> "" then
+    button #save, "Save", [acceptSite]
+    #save cssclass("btn btn-success")
+    html " "
+    button #cancel, "Cancel", [cancelSite]
+    #cancel cssclass("btn")
+  else
+    button #continue, "Continue", [acceptSite]
+    #continue cssclass("btn btn-success")
+  end if
   html "</div>"
   call adminFooter
   wait
 
 [acceptSite]
-  siteName$ = #siteName contents$()
-  siteDesc$ = #siteDesc contents$()
-  siteUrl$ = #siteUrl contents$()
-  if siteUrl$ <> "" then
-    if left$(siteUrl$, 7) <> "http://" and left$(siteUrl$, 8) <> "https://" then siteUrl$ = "http://" + siteUrl$
-    if right$(siteUrl$, 1) <> "/" then siteUrl$ = siteUrl$ + "/"
-  end if
+  newSiteName$ = #siteName contents$()
   dateFormat$ = #dateFormat contents$()
   allowRegistration = #allowRegistration value()
   allowUploads = #allowUploads value()
@@ -921,13 +951,14 @@ wait
   newWindow = #newWindow value()
   smtpHost$ = #smtpHost contents$()
   smtpPassword$ = #smtpPassword contents$()
+  verifySmtpPassword$ = #verifySmtpPassword contents$()
   fromAddress$ = #fromAddress contents$()
   siteTheme$ = #theme selection$()
   convertPath$ = #convertPath contents$()
   
   errorMessage$ = ""
 
-  if siteName$ = "" then errorMessage$ = appendMessage$(errorMessage$, "The Site Name must be supplied.")
+  if newSiteName$ = "" then errorMessage$ = appendMessage$(errorMessage$, "The Site Name must be supplied.")
   if dateFormat$ = "" then errorMessage$ = appendMessage$(errorMessage$, "The Date Format must be supplied.")
   if convertPath$ <> "" then
     if not(fileExists(convertPath$)) then
@@ -935,10 +966,12 @@ wait
     end if
   end if
 
-  if errorMessage$ <> "" then goto [site]
+  if smtpPassword$ <> verifySmtpPassword$ then errorMessage$ = appendMessage$(errorMessage$, "The SMTP Passwords do not match.")
+
+  if errorMessage$ <> "" then goto [retrySite]
   
   call execute "delete from site"
-  call execute "insert into site (name, description, url, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window, userdb, uploads, convertpath) values ("; quote$(siteName$); ","; quote$(siteDesc$); ","; quote$(siteUrl$); ","; quote$(dateFormat$); ","; allowRegistration; ","; allowObjects; ","; allowPlugins; ","; showBreadcrumbs; ","; quote$(smtpHost$); ","; quote$(smtpPassword$); ","; quote$(fromAddress$); ","; quote$(siteTheme$); ","; newWindow; ","; quote$(userDB$); ","; allowUploads; ","; quote$(convertPath$); ")"
+  call execute "insert into site (name, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window, userdb, uploads, convertpath) values ("; quote$(newSiteName$); ",";   quote$(dateFormat$); ","; allowRegistration; ","; allowObjects; ","; allowPlugins; ","; showBreadcrumbs; ","; quote$(smtpHost$); ","; quote$(smtpPassword$); ","; quote$(fromAddress$); ","; quote$(siteTheme$); ","; newWindow; ","; quote$(userDB$); ","; allowUploads; ","; quote$(convertPath$); ")"
 
   call loadSite
 
@@ -1015,6 +1048,15 @@ wait
   wait
 
 [newUser]
+  username$ = ""
+  email$ = ""
+  desc$ = ""
+  newPassword$ = ""
+  verifyPassword$ = ""
+  locked = 0
+  admin = 0
+
+[retryNewUser]
   call adminHeading "New User"
   call displayMessages
   html "<div class=""form-horizontal"">"
@@ -1023,31 +1065,36 @@ wait
   html "<div class=""control-group"">"
   html "<label class=""control-label required"">Username</label>"
   html "<div class=""controls"">"
-  textbox #username, ""
+  textbox #username, username$
   html "</div></div>"
   html "<div class=""control-group"">"
   html "<label class=""control-label required"">Email Address</label>"
   html "<div class=""controls"">"
-  textbox #email, ""
+  textbox #email, email$
   html "</div></div>"
   html "<div class=""control-group"">"
   html "<label class=""control-label"">Description</label>"
   html "<div class=""controls"">"
-  textbox #desc, "", 80
+  textbox #desc, desc$, 80
   html "</div></div>"
   html "<div class=""control-group"">"
   html "<div class=""controls"">"
-  html "<label class=""checkbox"">"
-  checkbox #locked, "Account Locked", 0
+  html "<label class=""checkbox inline"">"
+  checkbox #locked, "Account Locked", locked
   html "</label>"
-  html "<label class=""checkbox"">"
-  checkbox #admin, "Wiki Administrator", 0
+  html "<label class=""checkbox inline"">"
+  checkbox #admin, "Wiki Administrator", admin
   html "</label>"
   html "</div></div>"
   html "<div class=""control-group"">"
   html "<label class=""control-label"">Password</label>"
   html "<div class=""controls"">"
-  passwordbox #password, ""
+  passwordbox #password, newPassword$
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label"">Repeat Password</label>"
+  html "<div class=""controls"">"
+  passwordbox #verifyPassword, verifyPassword$
   html "</div></div>"
   html "<div class=""form-actions"">"
   button #save, "Save", [acceptNewUser]
@@ -1060,43 +1107,70 @@ wait
   wait
 
 [acceptNewUser]
-  if #userList new(#username contents$(), #password contents$()) = 0 then
+  username$ = trim$(#username contents$())
+  email$ = trim$(#email contents$())
+  desc$ = trim$(#desc contents$())
+  newPassword$ = #password contents$()
+  verifyPassword$ = #verifyPassword contents$()
+  locked = #locked value()
+  admin = #admin value()
+
+  if username$ = "" then errorMessage$ = appendMessage$(errorMessage$, "Username must be supplied.")
+  if email$ = "" then errorMessage$ = appendMessage$(errorMessage$, "Email Address must be supplied.")
+
+  if newPassword$ <> verifyPassword$ then errorMessage$ = appendMessage$(errorMessage$, "Passwords do not match.")
+
+  if errorMessage$ <> "" then goto [retryNewUser]
+
+  if #userList new(username$, newPassword$) = 0 then
     errorMessage$ = #userList errorMessage$()
-    goto [newUser]
+    goto [retryNewUser]
   end if
-  ' Note - after this point the user exists, so on error redirect to the edit user form
-  if #userList setEmail(#email contents$()) = 0 then
+  ' Note - after this point the user exists, so on error delete the user before retrying
+  if #userList setEmail(email$) = 0 then
     errorMessage$ = #userList errorMessage$()
-    goto [editUser]
+    #userList deleteUser()
+    goto [retryNewUser]
   end if
-  if #userList setDescription(#desc contents$()) = 0 then
+  if #userList setDescription(desc$) = 0 then
     errorMessage$ = #userList errorMessage$()
-    goto [editUser]
+    #userList deleteUser()
+    goto [retryNewUser]
   end if
 
-  if #locked value() then
+  if locked then
     if #userList lockUser() = 0 then
       errorMessage$ = #userList errorMessage$()
-      goto [editUser]
+      #userList deleteUser()
+      goto [retryNewUser]
     end if
   else
     if #userList unlockUser() = 0 then
       errorMessage$ = #userList errorMessage$()
-      goto [editUser]
+      #userList deleteUser()
+      goto [retryNewUser]
     end if
   end if
 
-  if #admin value() then
+  if admin then
     call execute "insert into admins(id) values (" + str$(#userList id()) + ")"
   end if
 
   goto [users]
 
 [editUser]
-  if left$(EventKey$, 1) <> "#" then
-    #userList selectUserById(val(EventKey$))
-  end if
+  #userList selectUserById(val(EventKey$))
 
+  username$ = #userList username$()
+  email$ = #userList email$()
+  desc$ = #userList description$()
+  locked = #userList locked()
+  admin = isAdmin(#userList id())
+  oldPassword$ = ""
+  newPassword$ = ""
+  verifyPassword$ = ""
+
+[retryEditUser]
   if userAdmin then
     call adminHeading "Edit User"
   else
@@ -1115,26 +1189,26 @@ wait
   html "<div class=""control-group"">"
   html "<label class=""control-label required"">Username</label>"
   html "<div class=""controls"">"
-  textbox #username, #userList username$()
+  textbox #username, username$
   html "</div></div>"
   html "<div class=""control-group"">"
   html "<label class=""control-label required"">Email Address</label>"
   html "<div class=""controls"">"
-  textbox #email, #userList email$()
+  textbox #email, email$
   html "</div></div>"
   html "<div class=""control-group"">"
   html "<label class=""control-label"">Description</label>"
   html "<div class=""controls"">"
-  textbox #desc, #userList description$(), 80
+  textbox #desc, desc$, 80
   html "</div></div>"
-  if #user id() <> #userList id() and isAdmin(#user id()) then
+  if #user id() <> #userList id() then
     html "<div class=""control-group"">"
     html "<div class=""controls"">"
-    html "<label class=""checkbox"">"
-    checkbox #locked, "Account Locked", #userList locked()
+    html "<label class=""checkbox inline"">"
+    checkbox #locked, "Account Locked", locked
     html "</label>"
-    html "<label class=""checkbox"">"
-    checkbox #admin, "Wiki Administrator", isAdmin(#userList id())
+    html "<label class=""checkbox inline"">"
+    checkbox #admin, "Wiki Administrator", admin
     html "</label>"
     html "</div></div>"
   end if
@@ -1142,24 +1216,28 @@ wait
     html "<div class=""control-group"">"
     html "<label class=""control-label"">Old Password</label>"
     html "<div class=""controls"">"
-    passwordbox #oldPassword, ""
-    html "</div></div>"
-    html "<div class=""control-group"">"
-    html "<label class=""control-label"">New Password</label>"
-    html "<div class=""controls"">"
-    passwordbox #newPassword, ""
-    html "</div></div>"
-    html "<div class=""control-group"">"
-    html "<label class=""control-label"">Repeat New Password</label>"
-    html "<div class=""controls"">"
-    passwordbox #verifyPassword, ""
+    passwordbox #oldPassword, oldPassword$
     html "</div></div>"
   end if
+  html "<div class=""control-group"">"
+  html "<label class=""control-label"">New Password</label>"
+  html "<div class=""controls"">"
+  passwordbox #newPassword, newPassword$
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label"">Repeat New Password</label>"
+  html "<div class=""controls"">"
+  passwordbox #verifyPassword, verifyPassword$
+  html "</div></div>"
   html "<div class=""form-actions"">"
   button #save, "Save", [acceptUserEdit]
   #save cssclass("btn btn-success")
   html " "
   if userAdmin then
+    button #deleteUser, "Delete", [deleteUser]
+    #deleteUser setkey(str$(#userList id()))
+    #deleteUser cssclass("btn btn-danger")
+    html " "
     button #cancel, "Cancel", [users]
   else
     button #cancel, "Cancel", [cancel]
@@ -1170,29 +1248,46 @@ wait
   wait
 
 [acceptUserEdit]
-  if #userList setUsername(#username contents$()) = 0 then
-    errorMessage$ = #userList errorMessage$()
-    goto [editUser]
+  username$ = trim$(#username contents$())
+  email$ = trim$(#email contents$())
+  desc$ = trim$(#desc contents$())
+  locked = #locked value()
+  admin = #admin value()
+  if #user id() = #userList id() then
+    oldPassword$ = #oldPassword contents$()
   end if
-  if #userList setEmail(#email contents$()) = 0 then
+  newPassword$ = #newPassword contents$()
+  verifyPassword$ = #verifyPassword contents$()
+
+  if username$ = "" then errorMessage$ = appendMessage$(errorMessage$, "Username must be supplied.")
+  if email$ = "" then errorMessage$ = appendMessage$(errorMessage$, "Email Address must be supplied.")
+  if newPassword$ <> verifyPassword$ then errorMessage$ = appendMessage$(errorMessage$, "Passwords do not match.")
+
+  if errorMessage$ <> "" then goto [retryEditUser]
+
+  if #userList setUsername(username$) = 0 then
     errorMessage$ = #userList errorMessage$()
-    goto [editUser]
+    goto [retryEditUser]
   end if
-  if #userList setDescription(#desc contents$()) = 0 then
+  if #userList setEmail(email$) = 0 then
     errorMessage$ = #userList errorMessage$()
-    goto [editUser]
+    goto [retryEditUser]
+  end if
+  if #userList setDescription(desc$) = 0 then
+    errorMessage$ = #userList errorMessage$()
+    goto [retryEditUser]
   end if
 
-  if #user id() <> #userList id() and isAdmin(#user id()) then
-    if #locked value() then
+  if #user id() <> #userList id() then
+    if locked then
       if #userList lockUser() = 0 then
         errorMessage$ = #userList errorMessage$()
-        goto [editUser]
+        goto [retryEditUser]
       end if
     else
       if #userList unlockUser() = 0 then
         errorMessage$ = #userList errorMessage$()
-        goto [editUser]
+        goto [retryEditUser]
       end if
     end if
 
@@ -1203,10 +1298,19 @@ wait
     end if
   end if
 
-  if #user id() = #userList id() and (#oldPassword contents$() <> "" or #newPassword contents$() <> "" or #verifyPassword contents$() <> "") then
-    if #user changePassword(#oldPassword contents$(), #newPassword contents$(), #verifyPassword contents$()) = 0 then
-      errorMessage$ = #user errorMessage$()
-      goto [editUser]
+  if #user id() = #userList id() then
+    if oldPassword$ <> "" or newPassword$ <> "" or verifyPassword$ <> "" then
+      if #userList changePassword(oldPassword$, newPassword$, verifyPassword$) = 0 then
+        errorMessage$ = #userList errorMessage$()
+        goto [retryEditUser]
+      end if
+    end if
+  else
+    if newPassword$ <> "" then
+      if #userList setPassword(newPassword$) = 0 then
+        errorMessage$ = #userList errorMessage$()
+        goto [retryEditUser]
+      end if
     end if
   end if
 
@@ -1245,18 +1349,16 @@ wait
 ' =============================
 
 [setupUserDB]
-  if newSites = 1 then
-    ' For security reasons, don't allow user database selection when on the fly site creation is allowed
-    userDB$ = Site$
-    goto [setupAdmin]
-  end if
-
   call adminHeading "Setup Users Database"
   call displayMessages
   html "<p>Welcome to your new wiki. First you must decide where to store user details. "
   html "These can be kept in the wiki database (the default) or in another database.</p>"
-  html "<label class=""required"">User Database</label>"
+  html "<div class=""form-horizontal"">"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">User Database</label>"
+  html "<div class=""controls"">"
   textbox #userdb, Site$ + ".db"
+  html "</div></div>"
   html "<div class=""form-actions"">"
   button #continue, "Continue", [acceptUserDB]
   #continue cssclass("btn btn-success")
@@ -1282,16 +1384,35 @@ wait
 ' =============================
 
 [setupAdmin]
+  username$ = "admin"
+  email$ = ""
+
+[retrySetupAdmin]
   call adminHeading "Setup Administrator Account"
   call displayMessages
   html "<p>Now you must create an administrator account. "
   html "Only administrators can change site settings and edit other users details.</p>"
-  html "<label class=""required"">Username</label>"
-  textbox #username, "admin"
-  html "<label class=""required"">Email Address</label>"
-  textbox #email, ""
-  html "<label>Password</label>"
+  html "<div class=""form-horizontal"">"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Username</label>"
+  html "<div class=""controls"">"
+  textbox #username, username$
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Email Address</label>"
+  html "<div class=""controls"">"
+  textbox #email, email$
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Password</label>"
+  html "<div class=""controls"">"
   passwordbox #password, ""
+  html "</div></div>"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Repeat Password</label>"
+  html "<div class=""controls"">"
+  passwordbox #verifyPassword, ""
+  html "</div></div>"
   html "<div class=""form-actions"">"
   button #continue, "Continue", [acceptSetupAdmin]
   #continue cssclass("btn btn-success")
@@ -1300,23 +1421,39 @@ wait
   wait
 
 [acceptSetupAdmin]
+  username$ = trim$(#username contents$())
+  email$ = trim$(#email contents$())
+  password$ = trim$(#password contents$())
+  verifyPassword$ = trim$(#verifyPassword contents$()) 
+
+  if username$ = "" then
+    errorMessage$ = appendMessage$(errorMessage$, "Username must be supplied.")
+  end if
+
+  if email$ = "" then
+    errorMessage$ = appendMessage$(errorMessage$, "Email Address must be supplied.")
+  end if
+
+  if password$ = "" then
+    errorMessage$ = appendMessage$(errorMessage$, "Password must be supplied.")
+  else
+    if password$ <> verifyPassword$ then
+      errorMessage$ = appendMessage$(errorMessage$, "Passwords do not match.")
+    end if
+  end if
+
+  if errorMessage$ <> "" then goto [retrySetupAdmin]
+
   ' Check for existing user (in case we are using a shared users database)
-  if #user login(#username contents$(), #password contents$()) = 0 then
-    if #user new(#username contents$(), #password contents$()) = 0 then
+  if #user login(username$, password$) = 0 then
+    if #user new(username$, password$) = 0 then
       errorMessage$ = #user errorMessage$()
-      goto [setupAdmin]
-    end if
-
-    if #user setDescription("Administrator") = 0 then
-      errorMessage$ = #user errorMessage$()
-      goto [setupAdmin]
+      goto [retrySetupAdmin]
     end if
   end if
 
-  if #user setEmail(#email contents$()) = 0 then
-    errorMessage$ = #user errorMessage$()
-    goto [setupAdmin]
-  end if
+  #user setDescription("Administrator")
+  #user setEmail(email$)
 
   call execute "insert into admins(id) values (" + str$(#user id()) + ")"
   currentName$ = "Home"
@@ -1330,16 +1467,20 @@ wait
 ' =========================
 
 [newSite]
+  siteId$ = ""
+
+[retryNewSite]
   call adminHeading "Create New Site"
+  call displayMessages
   html "<p>Please enter an identifier for the new site - this will also be used as the "
   html "database name for the new site so it must be a valid filename.</p>"
-  if errorMessage$ <> "" then
-    call displayError errorMessage$
-    errorMessage$ = ""
-  end if
 
-  html "<label class=""required"">Site Identifier</label>"
-  textbox #siteId, ""
+  html "<div class=""form-horizontal"">"
+  html "<div class=""control-group"">"
+  html "<label class=""control-label required"">Site Identifier</label>"
+  html "<div class=""controls"">"
+  textbox #siteId, siteId$
+  html "</div></div>"
   html "<div class=""form-actions"">"
   button #create, "Create Site", [acceptNewSite]
   #create cssclass("btn btn-success")
@@ -1351,31 +1492,33 @@ wait
   wait
 
 [acceptNewSite]
-  if #siteId contents$() = "" then
+  siteId$ = trim$(#siteId contents$())
+  if siteId$ = "" then
     errorMessage$ = "You must enter a site identifier."
-    goto [newSite]
+    goto [retryNewSite]
   end if
 
-  if instr(#siteId contents$(), pathSeparator$) > 0 then
+  if instr(siteId$, pathSeparator$) > 0 then
     errorMessage$ = "The site identifier must not contain '" + pathSeparator$ + "'."
-    goto [newSite]
+    goto [retryNewSite]
   end if
 
-  newSite$ = lower$(#siteId contents$())
+  newSite$ = lower$(siteId$)
 
   newDatabaseFilename$ = DatabaseDir$ + pathSeparator$ + newSite$ + ".db"
 
   if fileExists(newDatabaseFilename$) then
     errorMessage$ = "A database file with this name already exists. Please choose another site identifier."
-    goto [newSite]
+    goto [retryNewSite]
   end if
 
   Site$ = newSite$
   DatabaseFilename$ = newDatabaseFilename$
-  uploadDir$ = ResourcesRoot$ + pathSeparator$ + Site$
+  uploadDir$ = SitesDir$ + pathSeparator$ + Site$
 
   call createDirectories
   call createDatabase
+  siteName$ = ""
 
   call adminHeading "New Site Created"
   html "<div class=""alert alert-block alert-success"">"
@@ -1392,7 +1535,7 @@ wait
 
 [handleError]
   cls
-  head "<link href=""/"; AppName$; "/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
+  head "<link href=""/";AppName$;"/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
   html "</div><div class=""container-fluid""><br />"
   html "<div class=""alert alert-block alert-error"">"
   html "<h2>Unexpected Error</h2>"
@@ -1457,9 +1600,13 @@ end sub
 sub adminHeading heading$
   cls
 
-  titlebar siteName$; " - "; heading$
+  if siteName$ <> "" then
+    titlebar siteName$; " - "; heading$
+  else
+    titlebar "New Site Wizard - "; heading$
+  end if
 
-  head "<link href=""/"; AppName$; "/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
+  head "<link href=""/";AppName$; "/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
   head "<style type=""text/css"">body {padding-top: 60px}</style>"
   head "<style type=""text/css"">label.required:after {content:"" *""; color:red;}</style>"
 
@@ -1467,14 +1614,18 @@ sub adminHeading heading$
   html "<div class=""navbar navbar-fixed-top navbar-inverse"">"
   html "<div class=""navbar-inner"">"
   html "<div class=""container-fluid"">"
-  html "<a class=""brand"" href=""#"">"
-  print siteName$;
-  html "</a>"
-  html "<ul class=""nav pull-right"">"
-  html "<li>"
-  link #cancel, "Return to Wiki", [cancel]
-  html "</li>"
-  html "</ul>"
+  if siteName$ <> "" then
+    link #home, siteName$, loadPage
+    #home setkey("home")
+    #home cssclass("brand")
+    html "<ul class=""nav pull-right"">"
+    html "<li>"
+    link #cancel, "Return to Wiki", [cancel]
+    html "</li>"
+    html "</ul>"
+  else
+    html "<a class=""brand"" href=""#"">New Site Wizard</a>"
+  end if
   html "</div></div></div><br/>"
   html "<div class=""container-fluid"">"
 end sub
@@ -1484,7 +1635,7 @@ end sub
 ' 
 sub attribution
   html "<p class=""pull-right"">Powered by RunWikiNG and <a href=""http://www.runbasic.com/"">Run BASIC</a>.<br />"
-  html "Built with <a href=""http://twitter.github.io/bootstrap/"">Bootstrap</a>. Icons from <a href=""http://glyphicons.com/"">Glyphicons</a>.</p>"
+  html "Built with <a href=""http://getbootstrap.com/2.3.2/"">Bootstrap</a>. Icons from <a href=""http://glyphicons.com/"">Glyphicons</a>.</p>"
 end sub
 
 '
@@ -1571,6 +1722,8 @@ end sub
 ' Create directories if required
 '
 sub createDirectories
+  if not(dirExists(SitesDir$)) then result = mkdir(SitesDir$)
+
   if not(dirExists(DatabaseDir$)) then result = mkdir(DatabaseDir$)
 
   if not(dirExists(uploadDir$)) then result = mkdir(uploadDir$)
@@ -1604,9 +1757,17 @@ sub displayBreadcrumb
     for i = 0 to 9
       if breadcrumbs$(i) = "" then exit for
       if i = 9 or breadcrumbs$(i + 1) = "" then
-        html "<li class=""active"">"
-        print breadcrumbs$(i);
-        html "</li>"
+        if specialPage(currentName$) then
+          html "<li>"
+          link #link, breadcrumbs$(i), loadPage
+          #link setid("breadcrumb";i)
+          #link setkey(breadcrumbs$(i))
+          html "</li>"
+        else
+          html "<li class=""active"">"
+          print breadcrumbs$(i);
+          html "</li>"
+        end if
       else
         html "<li>"
         link #link, breadcrumbs$(i), loadPage
@@ -1641,9 +1802,9 @@ sub displayCurrentPage
   html "<div class=""navbar navbar-fixed-top navbar-inverse"">"
   html "<div class=""navbar-inner"">"
   html "<div class=""container-fluid"">"
-  html "<a class=""brand"" href=""#"">"
-  print siteName$;
-  html "</a>"
+  link #home, siteName$, loadPage
+  #home setkey("home")
+  #home cssclass("brand")
   html "<ul class=""nav"">"
   call pageList
   html "</ul>"
@@ -1729,7 +1890,15 @@ sub displayCurrentPage
   html "<div class=""row-fluid"">"
   html "<div class=""span8"">"
   html "<h1>"
-  print currentName$;
+  if specialPage(name$) then
+    print currentName$;
+  else
+    html "<a href=""/seaside/go/runbasicpersonal?app=" + AppName$ + "&site=" + urlEncode$(Site$) + "&page=" + urlEncode$(currentName$) + """ data-toggle=""tooltip"" title=""Permanent link to "
+    print currentName$;
+    html """>"
+    print currentName$;
+    html "</a>"
+  end if
   html "</h1>"
   if specialPage(currentName$) then
     select case currentName$
@@ -1804,14 +1973,14 @@ sub displayMessages
   if errorMessage$ <> "" then
     html "<div class=""alert alert-error"">"
     html "<a class=""close"" data-dismiss=""alert"" href=""#"">&times;</a>"
-    print errorMessage$;
+    html errorMessage$
     html "</div>"
     errorMessage$ = ""
   else
     if successMessage$ <> "" then
       html "<div class=""alert alert-success"">"
       html "<a class=""close"" data-dismiss=""alert"" href=""#"">&times;</a>"
-      print successMessage$;
+      html successMessage$
       html "</div>"
     end if
     successMessage$ = ""
@@ -1825,31 +1994,6 @@ sub execute sql$
   call connect
   #db execute(sql$)
   call disconnect
-end sub
-
-'
-' Generate the sitemap file
-'
-sub generateSitemap
-  if siteUrl$ <> "" then
-    ' Create the sitemap
-    open ResourcesRoot$ + pathSeparator$ + "sitemap.txt" for output as #sitemap
-
-    call connect
-    #db execute("select name from pages order by name")
-    while #db hasanswer()
-      #row = #db #nextrow()
-      name$ = #row name$()
-      print #sitemap, baseUrl$; "&page="; urlEncode$(name$)
-    wend
-    call disconnect
-    close #sitemap
-
-    ' Create robots.txt
-    open ResourcesRoot$ + pathSeparator$ + "robots.txt" for output as #robots
-    print #robots, "Sitemap: "; siteUrl$ + "sitemap.txt"
-    close #robots
-  end if
 end sub
 
 '
@@ -1940,8 +2084,6 @@ end sub
 '
 sub loadSite
   siteName$ = ""
-  siteDesc$ = ""
-  siteUrl$ = ""
   dateFormat$ = ""
   allowRegistration = 0
   allowUploads = 0
@@ -1957,12 +2099,10 @@ sub loadSite
   convertPath$ = ""
 
   call connect
-  #db execute("select name, description, url, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window newwindow, userdb, uploads, convertpath from site")
+  #db execute("select name, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window newwindow, userdb, uploads, convertpath from site")
   if #db hasanswer() then
     #result = #db #nextRow()
     siteName$ = #result name$()
-    siteDesc$ = #result description$()
-    siteUrl$ = #result url$()
     dateFormat$ = #result dateformat$()
     allowRegistration = #result registration()
     allowObjects = #result objects()
@@ -1982,11 +2122,6 @@ sub loadSite
 
     if smtpHost$ <> "" then
       #user setSmtpProfile(smtpHost$, smtpPassword$, fromAddress$)
-    end if
-    if siteUrl$ <> "" then 
-      baseUrl$ = siteUrl$ + "seaside/go/runbasicpersonal?app=" + AppName$ + "&site=" + urlEncode$(Site$)
-    else
-      baseUrl$ = ""
     end if
   end if
   call disconnect
@@ -2353,6 +2488,26 @@ sub renderPage content$
         end if
         html "<li>"
         #blockStack push("</li>")
+        goto [skipChar]
+      end if
+
+      ' New definition list or list item
+      if mid$(content$, i, 1) = ";" or mid$(content$, i, 1) = ":" then
+        if #blockStack peekHead$() = "</dl>" then
+          call unwindTagStack
+          html #blockStack pop$()
+        else
+          call unwindBlockStack
+          html "<dl>"
+          #blockStack push("</dl>")
+        end if
+        if mid$(content$, i, 1) = ";" then
+          html "<dt>"
+          #blockStack push("</dt>")
+        else
+          html "<dd>"
+          #blockStack push("</dd>")
+        end if
         goto [skipChar]
       end if
 
@@ -2752,10 +2907,10 @@ sub renderPage content$
       if lower$(left$(url$, 7)) <> "http://" and lower$(left$(url$, 8)) <> "https://" then
         if text$ = "" then text$ = url$
         if imgSize$ <> "" then
-          originalUrl$ = "/" + Site$ + "/" + url$
+          originalUrl$ = "/" + AppName$ + "/sites/" + Site$ + "/" + url$
           url$ = makeThumbnail$(url$, imgSize$)
         else
-          url$ = "/" + Site$ + "/" + url$
+          url$ = "/" + AppName$ + "/sites/" + Site$ + "/" + url$
         end if
       end if
 
@@ -2834,7 +2989,7 @@ sub renderPage content$
             text$ = imgUrl$
           end if
           if lower$(left$(imgUrl$, 7)) <> "http://" and lower$(left$(imgUrl$, 8)) <> "https://" then
-            imgUrl$ = "/" + Site$ + "/" + imgUrl$
+            imgUrl$ = "/" + AppName$ + "/sites/" + Site$ + "/" + imgUrl$
           end if
         else
           imgUrl$ = ""
@@ -2934,7 +3089,7 @@ sub renderPage content$
             text$ = imgUrl$
           end if
           if lower$(left$(imgUrl$, 7)) <> "http://" and lower$(left$(imgUrl$, 8)) <> "https://" then
-            imgUrl$ = "/" + Site$ + "/" + imgUrl$
+            imgUrl$ = "/" + AppName$ + "/sites/" + Site$ + "/" + imgUrl$
           end if
         else
           imgUrl$ = ""
@@ -3286,9 +3441,18 @@ function getUrlParam$(key$)
     w$ = word$(UrlKeys$, i, "&")
     if w$ = "" then exit for
     k$ = word$(w$, 1, "=")
-    if upper$(key$) = upper$(k$) then
-      getUrlParam$ = word$(w$, 2, "=")
-      exit for
+    if instr(k$, "%3d") <> 0 then
+      ' Work around for pound redirect bug
+      k$ = word$(w$, 1, "%3d")
+      if upper$(key$) = upper$(k$) then
+        getUrlParam$ = word$(w$, 2, "%3d")
+        exit for
+      end if
+    else
+      if upper$(key$) = upper$(k$) then
+        getUrlParam$ = word$(w$, 2, "=")
+        exit for
+      end if
     end if
   next
   getUrlParam$ = urlDecode$(getUrlParam$)
@@ -3389,9 +3553,9 @@ function makeThumbnail$(image$, size$)
         a$ = shell$(command$; " """; original$; """ -resize """; size$; ">"" """; thumbnail$; """")
       end if
     end if
-    makeThumbnail$ = "/" + Site$ + "/thumbnails/" + replacePct$(size$) + "_" + image$
+    makeThumbnail$ = "/" + AppName$ + "/sites/" + Site$ + "/thumbnails/" + replacePct$(size$) + "_" + image$
   else
-    makeThumbnail$ = "/" + Site$ + "/" + image$
+    makeThumbnail$ = "/" + AppName$ + "/sites/" + Site$ + "/" + image$
   end if
 end function
 
