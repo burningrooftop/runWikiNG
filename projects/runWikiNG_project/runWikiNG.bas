@@ -32,7 +32,7 @@ SitesDir$ = ResourcesRoot$ + pathSeparator$ + AppName$ + pathSeparator$ + "sites
 
 global Site$, adminNewSites
 global dateFormat$
-global AppName$, DatabaseDir$, DatabaseFilename$, SitesDir$, uploadDir$, themeDir$, cssFile$
+global AppName$, DatabaseDir$, DatabaseFilename$, SitesDir$, uploadDir$, themeDir$, cssFile$, privateSite, inverseMenu
 global siteName$, allowRegistration, allowObjects, allowPlugins, allowUploads, showBreadcrumbs, siteTheme$, newWindow
 global userDB$
 global errorMessage$, successMessage$
@@ -66,7 +66,7 @@ breadcrumbs$(0) = "Home"
 
 global currentName$, currentContent$, newContent$, sidebarContent$, newSidebarContent$, pageTimestamp$, pageUpdateBy$, pageLocked
 global #editPage, #db, #user, #userList
-global preview, hideFlag
+global preview, hideFlag, privateFlag
 global #searchText, searchText$, pageDeleted
 global numInlineTags
 global #blockStack, #tagStack, #htmlStack
@@ -109,9 +109,12 @@ else
   end if
 end if
 
-name$ = getUrlParam$("page")
-if name$ = "" then name$ = "Home"
-call loadPage name$
+currentName$ = getUrlParam$("page")
+if currentName$ = "" then currentName$ = "Home"
+
+if privateSite and #user id() = 0 then goto [login]
+
+call loadPage currentName$
 wait
 
 [cancel]
@@ -122,6 +125,8 @@ wait
 [logout]
   #user logout()
   successMessage$ = "You have been logged out."
+  if privateSite then goto [login]
+  call loadCurrentPage
   call displayCurrentPage
   wait
 
@@ -135,7 +140,11 @@ wait
 [retryLogin]
   call adminHeading "Login"
   call displayMessages
-  html "<div class=""alert alert-info"">Please login using either your username or email address.</div>"
+  if privateSite then
+    html "<div class=""alert"">"
+    print "You must login to view this site.";
+    html "</div>"
+  end if
   if allowRegistration then
     html "<div class=""alert"">"
     print "If you do not have an account, you can request one by clicking ";
@@ -159,9 +168,11 @@ wait
   button #login, "Log in", [doLogin]
   #login cssclass("btn btn-success")
   html " "
-  button #cancel, "Cancel", [cancel]
-  #cancel cssclass("btn")
-  html " "
+  if privateSite = 0 then
+    button #cancel, "Cancel", [cancel]
+    #cancel cssclass("btn")
+    html " "
+  end if
   link #forgotPassword, "Forgot Password", [forgotPassword]
   #forgotPassword cssclass("btn")
   html "</div></div>"
@@ -175,6 +186,7 @@ wait
     goto [retryLogin]
   end if
 
+  call loadCurrentPage
   call displayCurrentPage
   wait
 
@@ -184,7 +196,7 @@ wait
 [retryForgotPassword]
   call adminHeading "Forgot Password"
   call displayMessages
-  html "<p>Enter your user name or email address. Your password will be reset and emailed to your email address.</p>"
+  html "<p>Enter your user name or email address. Your password will be reset and the new password will be emailed to your email address.</p>"
   html "<div class=""form-horizontal"">"
   html "<div class=""control-group"">"
   html "<label class=""control-label required"">Username or Email</label>"
@@ -196,7 +208,7 @@ wait
   button #reset, "Reset Password", [resetPassword]
   #reset cssclass("btn btn-accept")
   html " "
-  button #cancel, "Cancel", [cancel]
+  button #cancel, "Cancel", [retryLogin]
   #cancel cssclass("btn")
   html "</div>"
   call adminFooter
@@ -212,7 +224,7 @@ wait
   html "<div class=""alert alert-block alert-success"">"
   html "<h4>Password Reset</h4>"
   html "<p>Your password has been successfully reset. The new password has been emailed to you.</p><p>"
-  button #continue, "Continue", [cancel]
+  button #continue, "Continue", [login]
   #continue cssclass("btn")
   html "</p></div>"
   call adminFooter
@@ -405,7 +417,8 @@ wait
 [previewEditPage]
   newContent$ = #content contents$()
   newSidebarContent$ = #sidebar contents$()
-  newHideFlag = #hide value()
+  newShowFlag = #show value()
+  newPrivateFlag = #private value()
 
   preview = 1
 
@@ -447,34 +460,48 @@ wait
   html "<h1>Edit Page - "
   print currentName$
   html "</h1>"
+
   if preview = 1 then
+    if currentContent$ <> newContent$ or sidebarContent$ <> newSidebarContent$ then
+      html "<div class=""alert alert-warning"">"
+      html "Preview contains unsaved changes - "
+      button #save, "Save Now", [acceptEdit]
+      #save cssclass("btn btn-small")
+      html "</div>"
+    end if
     preview = 0
     imgId = 0
-    if newSidebarContent$ <> "" then html "<div class=""row-fluid""><div class=""span8"">"
-    html "<div class=""well"">"
+    html "<div class=""row-fluid""><div class=""span8"">"
     call renderPage newContent$
+    html "</div><div class=""span4"">"
     if newSidebarContent$ <> "" then
-       html "</div></div><div class=""span4""><div class=""well well-small"">"
-       call renderPage newSidebarContent$
-       html "</div></div>"
+      html "<div class=""well well-small"">"
+      call renderPage newSidebarContent$
+      html "</div>"
     end if
-    html "</div>"
+    html "</div></div>"
   else
     if newPage = 1 then
       currentContent$ = ""
       newContent$ = ""
       sidebarContent$ = ""
       newSidebarContent$ = ""
-      newHideFlag = 0
+      newShowFlag = 0
       newPageLocked = 0
+      newPrivateFlag = 0
     else
       newContent$ = currentContent$
       newSidebarContent$ = sidebarContent$
-      newHideFlag = hideFlag
+      newShowFlag = not(hideFlag)
       newPageLocked = pageLocked
+      newPrivateFlag = privateFlag
     end if
   end if
   html "<div class=""btn-toolbar"">"
+  html "<div class=""btn-group"">"
+  button #preview, "Preview", [previewEditPage]
+  #preview cssclass("btn")
+  html "</div>"
   html "<div class=""btn-group"">"
   html "<a class=""btn"" href=""#"" onclick=""mod_selection('\n===== ',' =====\n', 'Heading 1')"">H1</a>"
   html "<a class=""btn"" href=""#"" onclick=""mod_selection('\n==== ', ' ====\n', 'Heading 2')"">H2</a>"
@@ -524,6 +551,12 @@ wait
   html "<div class=""btn-group"">"
   html "<a class=""btn"" href=""http://www.staddle.net/seaside/go/runbasicpersonal?app=runWikiNG&site=getrunwiki&page=documentation"" target=""_blank""><i class=""icon-question-sign""></i> Help</a>"
   html "</div>"
+  html "<div class=""btn-group"">"
+  button #save, "Save", [acceptEdit]
+  #save cssclass("btn btn-success")
+  button #cancel, "Cancel", [cancelEdit]
+  #cancel cssclass("btn")
+  html "</div>"
   html "</div>"
 
   html "<div class=""form-inline well well-small"">"
@@ -541,17 +574,10 @@ wait
   textarea #sidebar, newSidebarContent$, 20, 20
   html "</div></div>"
 
-  html "<p>"
-  button #save, "Save Changes", [acceptEdit]
-  #save cssclass("btn btn-success")
-  html " "
-  button #preview, "Preview", [previewEditPage]
-  #preview cssclass("btn")
-  html " "
-  button #cancel, "Cancel", [cancelEdit]
-  #cancel cssclass("btn")
-  html "</p><p><i class=""icon-ok-circle""></i> <b>Page Options</b><br/><label class=""checkbox inline"">"
-  checkbox #hide, "Don't show in top menu ", newHideFlag
+  html "<p><i class=""icon-ok-circle""></i> <b>Page Options</b><br/><label class=""checkbox inline"">"
+  checkbox #show, "Show in top menu ", newShowFlag
+  html "</label><label class=""checkbox inline"">"
+  checkbox #private, "Private page ", newPrivateFlag
   html "</label>"
   if isAdmin(#user id()) then
     html " <label class=""checkbox inline"">"
@@ -600,7 +626,8 @@ wait
 [acceptEdit]
   newContent$ = #content contents$()
   newSidebarContent$ = #sidebar contents$()
-  newHideFlag = #hide value()
+  newShowFlag = #show value()
+  newPrivateFlag = #private value()
   if isAdmin(#user id()) then
     newPageLocked = #locked value()
   else
@@ -608,18 +635,19 @@ wait
   end if
   if newPage then
     call connect
-    #db execute("insert into pages (name, content, date, time, hide, user, locked, sidebar) values ("; quote$(currentName$); ","; quote$(newContent$); ","; date$("days"); ","; time$("seconds"); ","; newHideFlag; ","; #user id(); ","; newPageLocked; ","; quote$(newSidebarContent$); ")")
+    #db execute("insert into pages (name, content, date, time, hide, user, locked, sidebar, private) values ("; quote$(currentName$); ","; quote$(newContent$); ","; date$("days"); ","; time$("seconds"); ","; not(newShowFlag); ","; #user id(); ","; newPageLocked; ","; quote$(newSidebarContent$); ","; newPrivateFlag; ")")
     call disconnect
   else
     call backupCurrentPage
-    query$ = "update pages set content="; quote$(newContent$); ",hide="; newHideFlag; ",user="; #user id(); ",date="; date$("days"); ",time="; time$("seconds"); ",locked="; newPageLocked; ",sidebar="; quote$(newSidebarContent$); " where upper(name) = upper("; quote$(currentName$); ")"
+    query$ = "update pages set content="; quote$(newContent$); ",hide="; not(newShowFlag); ",user="; #user id(); ",date="; date$("days"); ",time="; time$("seconds"); ",locked="; newPageLocked; ",sidebar="; quote$(newSidebarContent$); ", private="; newPrivateFlag; " where upper(name) = upper("; quote$(currentName$); ")"
     call execute query$
   end if
   currentContent$ = newContent$
   sidebarContent$ = newSidebarContent$
   pageTimestamp$ = formatDate$(date$("mm/dd/yyyy")) + " " + formatTime$(time$("seconds"))
   pageUpdateBy$ = #user username$()
-  hideFlag = newHideFlag
+  hideFlag = not(newShowFlag)
+  privateFlag = newPrivateFlag
   pageLocked = newPageLocked
   pageDeleted = 0
 
@@ -686,7 +714,7 @@ wait
   button #save, "Save", [acceptRegister]
   #save cssclass("btn btn-success")
   html " "
-  button #cancel, "Cancel", [cancel]
+  button #cancel, "Cancel", [login]
   #cancel cssclass("btn")
   html "</div></fieldset></div>"
   call adminFooter
@@ -704,7 +732,7 @@ wait
   html "<div class=""alert alert-block alert-success"">"
   html "<h4>Registration Successful</h4>"
   html "<p>An email has been sent to "; #email contents$(); " containing your wiki password.</p><p>"
-  link #continue, "Return to the wiki", [cancel]
+  link #continue, "Return to the login page", [login]
   #continue cssclass("btn")
   html "</p></div>"
   call adminFooter
@@ -873,7 +901,11 @@ wait
   html "<div class=""controls"">"
   listbox #theme, themes$(), 1
   #theme select(siteTheme$)
-  html "</div></div>"
+  html "</div>"
+  html "<div class=""controls"">"
+  html "<label class=""checkbox"">"
+  checkbox #inverseMenu, "Inverse Menu Bar ", inverseMenu
+  html "</label></div></div>"
   html "<div class=""control-group"">"
   html "<label class=""control-label required"">Date Format</label>"
   if dateFormat$ = "" then dateFormat$ = "mm/dd/yyyy"
@@ -884,6 +916,8 @@ wait
   html "<div class=""control-group"">"
   html "<div class=""controls"">"
   html "<label class=""checkbox inline"">"
+  checkbox #privateSite, "Private Wiki (only registered users can view) ", privateSite
+  html "</label><br/><label class=""checkbox inline"">"
   checkbox #allowRegistration, "Allow Registration ", allowRegistration
   html "</label><br/><label class=""checkbox inline"">"
   checkbox #allowUploads, "Allow Uploads", allowUploads
@@ -955,6 +989,8 @@ wait
   fromAddress$ = #fromAddress contents$()
   siteTheme$ = #theme selection$()
   convertPath$ = #convertPath contents$()
+  privateSite = #privateSite value()
+  inverseMenu = #inverseMenu value()
   
   errorMessage$ = ""
 
@@ -971,7 +1007,7 @@ wait
   if errorMessage$ <> "" then goto [retrySite]
   
   call execute "delete from site"
-  call execute "insert into site (name, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window, userdb, uploads, convertpath) values ("; quote$(newSiteName$); ",";   quote$(dateFormat$); ","; allowRegistration; ","; allowObjects; ","; allowPlugins; ","; showBreadcrumbs; ","; quote$(smtpHost$); ","; quote$(smtpPassword$); ","; quote$(fromAddress$); ","; quote$(siteTheme$); ","; newWindow; ","; quote$(userDB$); ","; allowUploads; ","; quote$(convertPath$); ")"
+  call execute "insert into site (name, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window, userdb, uploads, convertpath, private, inverse) values ("; quote$(newSiteName$); ",";   quote$(dateFormat$); ","; allowRegistration; ","; allowObjects; ","; allowPlugins; ","; showBreadcrumbs; ","; quote$(smtpHost$); ","; quote$(smtpPassword$); ","; quote$(fromAddress$); ","; quote$(siteTheme$); ","; newWindow; ","; quote$(userDB$); ","; allowUploads; ","; quote$(convertPath$); ","; privateSite; ","; inverseMenu; ")"
 
   call loadSite
 
@@ -1606,23 +1642,43 @@ sub adminHeading heading$
     titlebar "New Site Wizard - "; heading$
   end if
 
-  head "<link href=""/";AppName$; "/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
-  head "<style type=""text/css"">body {padding-top: 60px}</style>"
+  head "<meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">"
+
+  if cssFile$ <> "" then
+    head "<link href="""; cssFile$; """ rel=""stylesheet""/>"
+  else
+    head "<link href=""/";AppName$; "/bootstrap/css/bootstrap.min.css"" rel=""stylesheet""/>"
+  end if
+  head "<style type=""text/css"">body {padding-top: 40px}</style>"
   head "<style type=""text/css"">label.required:after {content:"" *""; color:red;}</style>"
 
   html "</div>"
-  html "<div class=""navbar navbar-fixed-top navbar-inverse"">"
+  if inverseMenu then
+    html "<div class=""navbar navbar-fixed-top navbar-inverse"">"
+  else
+    html "<div class=""navbar navbar-fixed-top"">"
+  end if
   html "<div class=""navbar-inner"">"
   html "<div class=""container-fluid"">"
   if siteName$ <> "" then
+    ' Navigation toggle
+    html "<a class=""btn btn-navbar"" data-toggle=""collapse"" data-target="".nav-collapse"">"
+    html "<span class=""icon-bar""></span>"
+    html "<span class=""icon-bar""></span>"
+    html "<span class=""icon-bar""></span>"
+    html "</a>"
     link #home, siteName$, loadPage
     #home setkey("home")
     #home cssclass("brand")
-    html "<ul class=""nav pull-right"">"
-    html "<li>"
-    link #cancel, "Return to Wiki", [cancel]
-    html "</li>"
-    html "</ul>"
+    if #user id() <> 0 then
+      html "<div class=""nav-collapse collapse"">"
+      html "<ul class=""nav pull-right"">"
+      html "<li>"
+      link #cancel, "Return to Wiki", [cancel]
+      html "</li>"
+      html "</ul>"
+      html "</div>"
+    end if
   else
     html "<a class=""brand"" href=""#"">New Site Wizard</a>"
   end if
@@ -1663,28 +1719,28 @@ sub createDatabase
     ' New database, create all the required tables
 
     ' Site table
-    #db execute("create table site (name text, description text, url text, dateformat text, registration int, objects int, plugins int, breadcrumbs int, smtphost text, smtppassword text, fromaddress text, theme text, new_window int, userdb text, uploads int, convertpath text)")
+    #db execute("create table site (name text, description text, url text, dateformat text, registration int, objects int, plugins int, breadcrumbs int, smtphost text, smtppassword text, fromaddress text, theme text, new_window int, userdb text, uploads int, convertpath text, private int)")
 
     ' Pages table
-    #db execute("create table pages (name text, content text, date int, time int, hide int, user int, locked int, sidebar text)")
+    #db execute("create table pages (name text, content text, date int, time int, hide int, user int, locked int, sidebar text, private int)")
 
     ' Insert default home page
     content$ = "This is your initial home page for your wiki.  Please edit this and make it your own."
     #db execute("insert into pages (name, content, date, time, user) values ('Home',"; quote$(content$); ","; date$("days"); ","; time$("seconds"); ", 0)")
 
     ' Page history table
-    #db execute("create table page_history (name text, content text, date int, time int, hide int, user int, locked int, sidebar text)")
+    #db execute("create table page_history (name text, content text, date int, time int, hide int, user int, locked int, sidebar text, private int)")
 
     ' Admins table
     #db execute("create table admins (id int)")
 
     ' DB version table
     #db execute("create table db_version (version integer)")
-    #db execute("insert or replace into db_version(version) values (3)")
+    #db execute("insert or replace into db_version(version) values (5)")
   else
     ' Existing database
 
-    ' If the db_version tables does not exists, its a version 1 database
+    ' If the db_version tables does not exists, it is a version 1 database
     #db execute("select * from sqlite_master where name = 'db_version' and type='table'")
     if not(#db hasanswer()) then
       dbVersion = 1
@@ -1710,9 +1766,26 @@ sub createDatabase
       #db execute("alter table site add convertpath text")
     end if
 
-    if dbVersion <> 3 then
+    if dbVersion = 3 then
+      ' Upgrade from version 3 database
+      #db execute("alter table pages add private int")
+      #db execute("alter table page_history add private int")
+    end if
+
+    if dbVersion = 4 then
+      ' Upgrade from version 4 database
+      #db execute("alter table site add private int")
+    end if
+
+    if dbVersion = 5 then
+      ' Upgrade from version 5 database
+      #db execute("alter table site add inverse int")
+      #db execute("update site set inverse = 1")
+    end if   
+
+    if dbVersion <> 6 then
       #db execute("delete from db_version")
-      #db execute("insert into db_version(version) values (3)")
+      #db execute("insert into db_version(version) values (6)")
     end if
   end if
   call disconnect
@@ -1796,15 +1869,27 @@ end sub
 sub displayCurrentPage
   cls
   titlebar siteName$; " - "; currentName$
+  head "<meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">"
   head "<link href="""; cssFile$; """ rel=""stylesheet""/>"
-  head "<style type=""text/css"">body {padding-top: 60px}</style>"
+  head "<style type=""text/css"">body {padding-top: 40px}</style>"
   html "</div>"
-  html "<div class=""navbar navbar-fixed-top navbar-inverse"">"
+  if inverseMenu then
+    html "<div class=""navbar navbar-fixed-top navbar-inverse"">"
+  else
+    html "<div class=""navbar navbar-fixed-top"">"
+  end if
   html "<div class=""navbar-inner"">"
   html "<div class=""container-fluid"">"
+  ' Navigation toggle
+  html "<a class=""btn btn-navbar"" data-toggle=""collapse"" data-target="".nav-collapse"">"
+  html "<span class=""icon-bar""></span>"
+  html "<span class=""icon-bar""></span>"
+  html "<span class=""icon-bar""></span>"
+  html "</a>"
   link #home, siteName$, loadPage
   #home setkey("home")
   #home cssclass("brand")
+  html "<div class=""nav-collapse collapse"">"
   html "<ul class=""nav"">"
   call pageList
   html "</ul>"
@@ -1883,7 +1968,7 @@ sub displayCurrentPage
     html "</li>"
   end if
   html "</ul>"
-  html "</div></div></div><br/>"
+  html "</div></div></div></div><br/>"
   html "<div class=""container-fluid"">"
   call displayMessages
   call displayBreadcrumb
@@ -1893,7 +1978,7 @@ sub displayCurrentPage
   if specialPage(name$) then
     print currentName$;
   else
-    html "<a href=""/seaside/go/runbasicpersonal?app=" + AppName$ + "&site=" + urlEncode$(Site$) + "&page=" + urlEncode$(currentName$) + """ data-toggle=""tooltip"" title=""Permanent link to "
+    html "<a href=""/seaside/go/runbasicpersonal?app=" + urlEncode$(AppName$) + "&site=" + urlEncode$(Site$) + "&page=" + urlEncode$(currentName$) + """ data-toggle=""tooltip"" title=""Permanent link to "
     print currentName$;
     html """>"
     print currentName$;
@@ -2038,7 +2123,7 @@ end sub
 '
 sub loadCurrentPage
   call connect
-  #db execute("select name, hide, content, user, date, time, locked, sidebar from pages where upper(name) = upper("; quote$(currentName$); ")")
+  #db execute("select name, hide, content, user, date, time, locked, sidebar, private from pages where upper(name) = upper("; quote$(currentName$); ")")
   if #db hasAnswer() then
     #result = #db #nextRow()
     currentName$ = #result name$()
@@ -2049,6 +2134,7 @@ sub loadCurrentPage
     date = #result date()
     time = #result time()
     pageLocked = #result locked()
+    privateFlag = #result private()
     if #userList selectUserById(user) then
       pageUpdateBy$ = #userList username$()
       #userList logout()
@@ -2058,11 +2144,15 @@ sub loadCurrentPage
     pageTimestamp$ = formatDate$(date$(date)) + " " + formatTime$(time)
     pageDeleted = 0
     preview = 0
+    if privateFlag = 1 and #user id() = 0 then
+      currentContent$ = "<alert-warning>=== Private Page === The page """; currentName$; """ can only be viewed by registered users. Please login to view this page.</alert>"
+    end if
   else
     currentContent$ = "<alert-error>=== Page Not Found === The page """; currentName$; """ does not exist.</alert>"
     sidebarContent$ = ""
     pageDeleted = 1
     pageLocked = 0
+    privateFlag = 0
     pageTimestamp$ = ""
     pageUpdateBy$ = ""
   end if
@@ -2097,9 +2187,11 @@ sub loadSite
   newWindow = 0
   userDB$ = ""
   convertPath$ = ""
+  privateSite = 0
+  inverseMenu = 0
 
   call connect
-  #db execute("select name, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window newwindow, userdb, uploads, convertpath from site")
+  #db execute("select name, dateformat, registration, objects, plugins, breadcrumbs, smtphost, smtppassword, fromaddress, theme, new_window newwindow, userdb, uploads, convertpath, private, inverse from site")
   if #db hasanswer() then
     #result = #db #nextRow()
     siteName$ = #result name$()
@@ -2116,6 +2208,8 @@ sub loadSite
     userDB$ = #result userdb$()
     allowUploads = #result uploads()
     convertPath$ = #result convertpath$()
+    privateSite = #result private()
+    inverseMenu = #result inverse()
     
     if not(fileExists(themeDir$ + pathSeparator$ + siteTheme$ + ".min.css")) then siteTheme$ = "bootstrap"
     cssFile$ = "/" + AppName$ + "/bootstrap/css/" + siteTheme$ + ".min.css"
@@ -2283,7 +2377,10 @@ sub pageSearch string$ format
     pattern$ = pattern$ + w$ + "%"
   wend
     
-  sql$ = "select name, content from pages where name like ";quote$(pattern$);" or content like ";quote$(pattern$);" or sidebar like ";quote$(pattern$);" order by upper(name)"
+  sql$ = "select name, content from pages where (name like " + quote$(pattern$) + " or content like " + quote$(pattern$) + " or sidebar like " + quote$(pattern$) + ")"
+
+  if format <> 0 then sql$ = sql$ + " and name <> " + quote$(currentName$)
+  sql$ = sql$ + " order by upper(name)"
 
   letter$ = ""
   call connect
@@ -2681,7 +2778,7 @@ sub renderPage content$
     ' Embedded object
     if lower$(mid$(content$, i, 8)) = "<object>" then
       j = instr(lower$(content$) + "</object>", "</object>", i + 8)
-      name$ = mid$(content$, i + 8, j - i - 8)
+      name$ = trim$(mid$(content$, i + 8, j - i - 8))
       i = j + 9
       if allowObjects = 0 then
         html "<span class=""label label-warning"">Objects have been disabled on this site.</span>"
@@ -2706,7 +2803,13 @@ sub renderPage content$
       if allowPlugins = 0 then
         html "<span class=""label label-warning"">Plugins have been disabled on this site.</span>"
       else
-        j = instr(name$, " ")
+        j1 = instr(name$, " ")
+        j2 = instr(name$, CR$)
+        if j1 = 0 or j2 = 0 then
+          j = max(j1, j2)
+        else
+          j = min(j1, j2)
+        end if
         if j <> 0 then
           PluginParams$ = mid$(name$, j + 1)
           name$ = left$(name$, j - 1)
